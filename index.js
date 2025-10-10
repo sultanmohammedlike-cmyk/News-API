@@ -115,8 +115,8 @@ body {
 
 <h2>Additional APIs Category</h2>
 
-<h3>GET /api/peakpx/:query/:page?</h3>
-<p>Fetches img from peakpx. :page is optional and defaults to 1.</p>
+<h3>GET /api/pixiv/:query/:page?</h3>
+<p>Fetches artworks from PIXIV. :page is optional and defaults to 1.</p>
 
 <h3>GET /api/slok/:ch?/:sl?</h3>
 <p>Fetches slok from Gita. :ch & :sl is optional and defaults to 1.</p>
@@ -129,9 +129,6 @@ body {
 
 <h3>GET /api/memes</h3>
 <p>Fetches memes from API.</p>
-
-<h3>GET /api/pixiv/:query/:page?</h3>
-<p>Fetches image from PIXIV.</p>
 
 <h3>GET /api/person/:num?</h3>
 <p>Fetches random details from API.</p>
@@ -153,6 +150,7 @@ body {
   `);
 });
 
+// Torrent routes
 app.get('/api/torrent/piratebay/:query/:page?', createScrapeRoute(pirateBay));
 app.get('/api/torrent/1337x/:query/:page?', createScrapeRoute(torrent1337x));
 app.get('/api/torrent/nyaasi/:query/:page?', createScrapeRoute(nyaaSI));
@@ -172,6 +170,30 @@ function createScrapeRoute(scraperFunction) {
   };
 }
 
+// Pixiv route
+app.get('/api/pixiv/:query/:page?', async (req, res) => {
+    const { query, page } = req.params;
+    try {
+        const artworks = await scrapePixiv(query, page);
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes cache
+        res.json({
+            success: true,
+            query: query,
+            page: parseInt(page) || 1,
+            results: artworks,
+            count: artworks.length
+        });
+    } catch (error) {
+        console.error('Pixiv API error:', error);
+        res.status(500).json({ 
+            error: error.message,
+            success: false 
+        });
+    }
+});
+
+// Other API routes (keep all your existing working routes)
 app.get('/api/radio/:page?', async (req, res) => {
   const page = req.params.page || 1;
   try {
@@ -218,7 +240,7 @@ app.get('/api/person/:num?', async (req, res) => {
     const url = `https://peoplegeneratorapi.live/api/person/${num}`;
 
     const response = await axios.get(url);
-    const prettyJson = JSON.stringify(response.data, null, 2); // This will format the JSON with 2 spaces of indentation
+    const prettyJson = JSON.stringify(response.data, null, 2);
 
     res.setHeader('Content-Type', 'application/json');
     res.send(prettyJson);
@@ -232,8 +254,8 @@ app.get('/api/memes', async (req, res) => {
   try {
     const response = await axios.get('https://api.imgflip.com/get_memes');
     let data = response.data;
-    data = JSON.stringify(data, null, 2); // Prettify JSON
-    data = data.replace(/\\\//g, '/'); // Replace \/ with /
+    data = JSON.stringify(data, null, 2);
+    data = data.replace(/\\\//g, '/');
 
     res.setHeader('Content-Type', 'application/json');
     res.send(data);
@@ -243,28 +265,12 @@ app.get('/api/memes', async (req, res) => {
   }
 });
 
-app.get('/api/pixiv/:query/:page?', async (req, res) => {
-    const { query, page } = req.params;
-    try {
-        const artworks = await scrapePixiv(query, page);
-        res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes cache
-        res.json(artworks);
-    } catch (error) {
-        console.error('Pixiv API error:', error);
-        res.status(500).json({ 
-            error: error.message,
-            success: false 
-        });
-    }
-});
-
 app.get('/api/slok/:ch?/:sl?', async (req, res) => {
     const chapter = req.params.ch || '1';
     const sloka = req.params.sl || '1';
     try {
         const response = await axios.get(`https://bhagavadgitaapi.in/slok/${chapter}/${sloka}`);
-        const prettyJson = JSON.stringify(response.data, null, 2); // This will format the JSON with 2 spaces of indentation
+        const prettyJson = JSON.stringify(response.data, null, 2);
         res.setHeader('Content-Type', 'application/json');
         res.send(prettyJson);
     } catch (error) {
@@ -276,7 +282,7 @@ app.get('/api/slok/:ch?/:sl?', async (req, res) => {
 app.get('/api/jokes/:query', async (req, res) => {
   try {
     const response = await axios.get(`https://api.chucknorris.io/jokes/search?query=${req.params.query}`);
-    const prettyJson = JSON.stringify(response.data, null, 2); // This will format the JSON with 2 spaces of indentation
+    const prettyJson = JSON.stringify(response.data, null, 2);
     res.setHeader('Content-Type', 'application/json');
     res.send(prettyJson);
   } catch (error) {
@@ -291,7 +297,7 @@ app.get('/api/ifsc/:ifsc', async (req, res) => {
     const url = `https://bank-apis.justinclicks.com/API/V1/IFSC/${ifsc}`;
 
     const response = await axios.get(url);
-    const prettyJson = JSON.stringify(response.data, null, 2); // This will format the JSON with 2 spaces of indentation
+    const prettyJson = JSON.stringify(response.data, null, 2);
 
     res.setHeader('Content-Type', 'application/json');
     res.send(prettyJson);
