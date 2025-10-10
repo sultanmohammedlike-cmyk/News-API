@@ -10,7 +10,6 @@ const { yts } = require('./scraper/yts');
 const scrapePixiv = require('./scraper/pixiv');
 const getRingtones = require('./scraper/ringtone');
 const getGifs = require('./scraper/giphy');
-const getStations = require('./scraper/radio');
 
 const app = express();
 const port = 3000;
@@ -136,9 +135,6 @@ body {
 <h3>GET /api/giphy/:query/:page?</h3>
 <p>Fetches gifs from Giphy.</p>
 
-<h3>GET /api/radio/:page?</h3>
-<p>Fetches radio from API.</p>
-
 <h3>GET /api/ifsc/:ifsc</h3>
 <p>Fetches bank details from IFSC CODE.</p>
 
@@ -191,20 +187,6 @@ app.get('/api/pixiv/:query/:page?', async (req, res) => {
             success: false 
         });
     }
-});
-
-// Other API routes (keep all your existing working routes)
-app.get('/api/radio/:page?', async (req, res) => {
-  const page = req.params.page || 1;
-  try {
-    const stations = await getStations(page);
-    let data = JSON.stringify(stations, null, 2);
-    res.setHeader('Content-Type', 'application/json');
-    res.send(data);
-  } catch (error) {
-    console.error('Error:', error);
-    res.status(500).send('Server error');
-  }
 });
 
 app.get('/api/giphy/:query/:page?', async (req, res) => {
