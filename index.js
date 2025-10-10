@@ -7,7 +7,6 @@ const { pirateBay } = require('./scraper/pirateBay');
 const { torrent1337x } = require('./scraper/1337x');
 const { nyaaSI } = require('./scraper/nyaaSI');
 const { yts } = require('./scraper/yts');
-const peakpx = require('./scraper/peakpx');
 const scrapePixiv = require('./scraper/pixiv');
 const getRingtones = require('./scraper/ringtone');
 const getGifs = require('./scraper/giphy');
@@ -242,19 +241,6 @@ app.get('/api/memes', async (req, res) => {
     console.error('Error:', error);
     res.status(500).send('Server error');
   }
-});
-
-app.get('/api/peakpx/:query/:page?', async (req, res) => {
-    const { query, page = 1 } = req.params;
-
-    peakpx.search(query, page)
-        .then(images => {
-            res.json(images);
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            res.status(500).json({ message: 'An error occurred while fetching peakpx images.' });
-        });
 });
 
 app.get('/api/pixiv/:query/:page?', async (req, res) => {
