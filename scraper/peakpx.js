@@ -1,65 +1,148 @@
-const cloudscraper = require('cloudscraper');
-const cheerio = require('cheerio');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 
-exports.search = function(query, page = 1) {
-    return new Promise((resolve, reject) => {
-        const url = `https://www.peakpx.com/en/search?q=${query}&page=${page}`;
+// Use stealth plugin to avoid detection
+puppeteer.use(StealthPlugin());
+
+// Global browser instance to avoid launching browser for every request
+let browserInstance = null;
+
+async function getBrowser() {
+    if (!browserInstance) {
+        browserInstance = await puppeteer.launch({
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--disable-blink-features=AutomationControlled',
+                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                '--window-size=1920,1080'
+            ],
+            ignoreHTTPSErrors: true
+        });
         
-        console.log(`Scraping PeakPX: ${url}`);
-        
-        cloudscraper.get({
-            url: url,
-            method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
+        // Clean up browser on process exit
+        process.on('exit', async () => {
+            if (browserInstance) {
+                await browserInstance.close();
             }
-        }).then(html => {
-            const $ = cheerio.load(html);
-            const images = [];
+        });
+    }
+    return browserInstance;
+}
+
+exports.search = async function(query, page = 1) {
+    let browser;
+    let pageInstance;
+    
+    try {
+        browser = await getBrowser();
+        pageInstance = await browser.newPage();
+        
+        // Set realistic viewport
+        await pageInstance.setViewport({ width: 1920, height: 1080 });
+        
+        // Set user agent
+        await pageInstance.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        
+        // Block images and other resources to speed up loading
+        await pageInstance.setRequestInterception(true);
+        pageInstance.on('request', (req) => {
+            if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
+                req.abort();
+            } else {
+                req.continue();
+            }
+        });
+        
+        const url = `https://www.peakpx.com/en/search?q=${encodeURIComponent(query)}&page=${page}`;
+        console.log(`Scraping PeakPX with Puppeteer: ${url}`);
+        
+        // Navigate to the page with longer timeout
+        await pageInstance.goto(url, { 
+            waitUntil: 'domcontentloaded',
+            timeout: 30000 
+        });
+        
+        // Wait for the content to load
+        try {
+            await pageInstance.waitForSelector('#list_ul li.grid', { 
+                timeout: 15000 
+            });
+        } catch (waitError) {
+            console.log('Content not found, checking if blocked...');
             
-            console.log('Successfully bypassed Cloudflare');
+            // Check if we're blocked by Cloudflare
+            const pageContent = await pageInstance.content();
+            if (pageContent.includes('Cloudflare') || pageContent.includes('cf-ray')) {
+                throw new Error('Cloudflare blocking detected');
+            }
             
-            $('#list_ul > li.grid').each((index, element) => {
+            // If no content found but not blocked, return empty results
+            return [];
+        }
+        
+        // Extract data
+        const images = await pageInstance.evaluate(() => {
+            const items = [];
+            const elements = document.querySelectorAll('#list_ul > li.grid');
+            
+            elements.forEach(element => {
                 try {
-                    const image = {};
-                    image.title = $(element).find('figure > .overflow.title').text().trim();
-                    image.imageUrl = $(element).find('figure > link[itemprop="contentUrl"]').attr('href');
+                    const titleEl = element.querySelector('figure > .overflow.title');
+                    const imageUrlEl = element.querySelector('figure > link[itemprop="contentUrl"]');
+                    const imgElement = element.querySelector('figure img');
                     
-                    // Add additional image information if available
-                    const imgElement = $(element).find('figure img');
-                    if (imgElement.length) {
-                        image.thumbnail = imgElement.attr('src');
-                        image.alt = imgElement.attr('alt') || image.title;
-                    }
-                    
-                    // Add image dimensions if available
-                    const dimensions = $(element).find('.resolution').text().trim();
-                    if (dimensions) {
-                        image.dimensions = dimensions;
-                    }
-                    
-                    if (image.imageUrl) {
-                        images.push(image);
+                    if (imageUrlEl) {
+                        const image = {
+                            title: titleEl ? titleEl.textContent.trim() : 'Untitled',
+                            imageUrl: imageUrlEl.getAttribute('href'),
+                            thumbnail: imgElement ? imgElement.getAttribute('src') : null,
+                            alt: imgElement ? imgElement.getAttribute('alt') : null
+                        };
+                        
+                        // Add dimensions if available
+                        const dimensionsEl = element.querySelector('.resolution');
+                        if (dimensionsEl) {
+                            image.dimensions = dimensionsEl.textContent.trim();
+                        }
+                        
+                        items.push(image);
                     }
                 } catch (error) {
-                    console.error(`Error processing image ${index}:`, error.message);
-                    // Continue with next image
+                    console.error('Error processing element:', error);
                 }
             });
             
-            console.log(`Found ${images.length} images for query "${query}"`);
-            resolve(images);
-        }).catch(error => {
-            console.error('Cloudscraper error:', error);
-            reject(new Error(`Failed to scrape PeakPX: ${error.message}`));
+            return items;
         });
-    });
+        
+        console.log(`Found ${images.length} images for query "${query}" on page ${page}`);
+        return images;
+        
+    } catch (error) {
+        console.error('Puppeteer scraping error:', error.message);
+        
+        // Close the page instance on error
+        if (pageInstance && !pageInstance.isClosed()) {
+            await pageInstance.close().catch(e => console.error('Error closing page:', e));
+        }
+        
+        throw new Error(`Failed to scrape PeakPX: ${error.message}`);
+    } finally {
+        // Always close the page instance
+        if (pageInstance && !pageInstance.isClosed()) {
+            await pageInstance.close().catch(e => console.error('Error closing page:', e));
+        }
+    }
+};
+
+// Function to close browser (useful for cleanup)
+exports.closeBrowser = async function() {
+    if (browserInstance) {
+        await browserInstance.close();
+        browserInstance = null;
+    }
 };
